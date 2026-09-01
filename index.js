@@ -16,52 +16,96 @@ dns.setServers(["1.1.1.1", "8.8.8.8"]);
 
 const app = express();
 
+// ===============================
+// MIDDLEWARE
+// ===============================
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
-const corsOptions = {
-    origin: [
-        "http://localhost:5173",
-        "http://localhost:5176",
-        process.env.FRONTEND_URL
-    ].filter(Boolean),
-    credentials: true
-};
+// ===============================
+// CORS
+// ===============================
 
-app.use(cors(corsOptions));
+const allowedOrigins = [
+    "http://localhost:5173",
+    "http://localhost:5176",
+    process.env.FRONTEND_URL
+].filter(Boolean);
+
+app.use(
+    cors({
+        origin: function (origin, callback) {
+            // Allow requests with no origin
+            // (Postman, server-to-server, etc.)
+            if (!origin) {
+                return callback(null, true);
+            }
+
+            if (allowedOrigins.includes(origin)) {
+                return callback(null, true);
+            }
+
+            return callback(
+                new Error("Not allowed by CORS")
+            );
+        },
+        credentials: true
+    })
+);
+
+// ===============================
+// MONGODB
+// ===============================
 
 let isConnected = false;
 
 async function connectToDatabase() {
-    if (isConnected) return;
+    if (isConnected && mongoose.connection.readyState === 1) {
+        return;
+    }
 
     try {
         await mongoose.connect(process.env.MONGO_URI);
+
         isConnected = true;
-        console.log("Connected to MongoDB");
+
+        console.log("MongoDB Connected Successfully");
     } catch (error) {
-        console.error("MongoDB connection error:", error);
+        isConnected = false;
+
+        console.error("MongoDB Connection Error:", error);
+
         throw error;
     }
 }
 
+// Connect DB before processing API request
 app.use(async (req, res, next) => {
     try {
         await connectToDatabase();
         next();
     } catch (error) {
-        res.status(500).json({
+        return res.status(500).json({
             success: false,
             message: "Database connection failed"
         });
     }
 });
 
+// ===============================
+// ROUTES
+// ===============================
+
 app.use("/api/v1/user", userRoute);
 app.use("/api/v1/company", companyRoute);
 app.use("/api/v1/job", jobRoute);
 app.use("/api/v1/application", applicationRoute);
+
+// ===============================
+// TEST ROUTE
+// ===============================
 
 app.get("/", (req, res) => {
     res.status(200).json({
@@ -69,5 +113,9 @@ app.get("/", (req, res) => {
         message: "Event Backend API is running"
     });
 });
+
+// ===============================
+// VERCEL
+// ===============================
 
 export default app;
